@@ -24,8 +24,35 @@ export default function GateScannerTab() {
     }
   };
 
+  const stopCamera = async () => {
+    if (scannerRef.current) {
+      try {
+        if (scannerRef.current.isScanning) {
+          await scannerRef.current.stop();
+        }
+        scannerRef.current.clear();
+      } catch {
+        // Ignore cleanup errors if already stopped
+      }
+      scannerRef.current = null;
+    }
+    setScanning(false);
+  };
+
   const startCamera = async () => {
     setScanResult(null);
+
+    if (!window.isSecureContext) {
+      setScanResult({
+        valid: false,
+        status: 'HTTPS_REQUIRED',
+        message: 'Mobile browsers block the camera on HTTP. Please open your Vercel https:// link.',
+      });
+      return;
+    }
+
+    await stopCamera();
+
     try {
       const html5QrCode = new Html5Qrcode('qr-reader');
       scannerRef.current = html5QrCode;
@@ -33,10 +60,13 @@ export default function GateScannerTab() {
 
       await html5QrCode.start(
         { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 240, height: 240 } },
+        { fps: 10, qrbox: { width: 220, height: 220 } },
         async (decodedText) => {
           await stopCamera();
           verifyToken(decodedText);
+        },
+        () => {
+          // Ignore per-frame "QR not found" scans
         }
       );
     } catch (err) {
@@ -44,17 +74,9 @@ export default function GateScannerTab() {
       setScanResult({
         valid: false,
         status: 'CAMERA_ERROR',
-        message: 'Camera unavailable or permission denied. Use the Manual Token Tester on the right!',
+        message: err?.message || 'Camera unavailable or permission denied. Allow camera access in browser settings.',
       });
     }
-  };
-
-  const stopCamera = async () => {
-    if (scannerRef.current && scannerRef.current.isScanning) {
-      await scannerRef.current.stop();
-      scannerRef.current.clear();
-    }
-    setScanning(false);
   };
 
   useEffect(() => {
@@ -81,15 +103,19 @@ export default function GateScannerTab() {
       <div className="grid md:grid-cols-2 gap-6">
         {/* Left: Live Camera Scanner */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col items-center">
-          <div
-            id="qr-reader"
-            className="w-full max-w-xs aspect-square bg-slate-950 rounded-xl overflow-hidden border border-slate-800 mb-4 flex items-center justify-center"
-          >
-            {!scanning && <span className="text-xs text-slate-500">Camera Preview Off</span>}
+          {/* Wrapper keeps placeholder separate from #qr-reader so React never wipes the <video> */}
+          <div className="relative w-full max-w-xs min-h-[260px] bg-slate-950 rounded-xl overflow-hidden border border-slate-800 mb-4 flex items-center justify-center">
+            <div id="qr-reader" className="w-full [&>video]:w-full [&>video]:rounded-xl" />
+            {!scanning && (
+              <span className="absolute text-xs text-slate-500 pointer-events-none">
+                Camera Preview Off
+              </span>
+            )}
           </div>
 
           {!scanning ? (
             <button
+              type="button"
               onClick={startCamera}
               className="w-full bg-indigo-600 hover:bg-indigo-500 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-2"
             >
@@ -97,6 +123,7 @@ export default function GateScannerTab() {
             </button>
           ) : (
             <button
+              type="button"
               onClick={stopCamera}
               className="w-full bg-red-600 hover:bg-red-500 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-2"
             >
@@ -113,7 +140,7 @@ export default function GateScannerTab() {
           >
             <h3 className="font-semibold text-sm">Gate Simulator (Paste Raw QR Token)</h3>
             <p className="text-xs text-slate-400">
-              Tip: Copy a student's raw QR token, scan it once (Green), scan it again (Yellow Duplicate Block), or alter 1 character (Red Forgery Alert).
+              Tip: Copy a student&apos;s raw QR token, scan it once (Green), scan it again (Yellow Duplicate Block), or alter 1 character (Red Forgery Alert).
             </p>
             <input
               type="text"
