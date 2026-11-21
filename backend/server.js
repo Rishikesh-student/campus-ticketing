@@ -12,6 +12,7 @@ const eventRoutes = require('./routes/eventRoutes');
 const ticketRoutes = require('./routes/ticketRoutes');
 // Add alongside your other route imports:
 const aiRoutes = require('./routes/aiRoutes');
+const researchRoutes = require('./routes/researchRoutes');
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use('/api/resources', resourceRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/research', researchRoutes);
 
 app.get('/', (req, res) => {
   res.json({ status: 'OK', message: 'Campus Resource & Ticketing API is running!' });

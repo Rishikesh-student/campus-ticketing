@@ -8,14 +8,27 @@ const { protect, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Helper: Create tamper-proof HMAC-SHA256 signed QR payload
+const WINDOW_SECONDS = 30;
+
+// Helper 1: Static tamper-proof HMAC-SHA256 payload (stored in DB)
 const signTicketPayload = (ticketId, eventId, studentId) => {
   const rawPayload = `${ticketId}:${eventId}:${studentId}`;
   const signature = crypto
     .createHmac('sha256', process.env.QR_HMAC_SECRET)
     .update(rawPayload)
     .digest('hex')
-    .slice(0, 24); // Compact 24-char hex MAC for fast mobile QR scanning
+    .slice(0, 24);
+  return `${rawPayload}:${signature}`;
+};
+
+// Helper 2: Time-Windowed Dynamic HMAC-SHA256 payload (anti-screenshot proxy defense)
+const signRotatingPayload = (ticketId, eventId, studentId, timeWindow) => {
+  const rawPayload = `${ticketId}:${eventId}:${studentId}:${timeWindow}`;
+  const signature = crypto
+    .createHmac('sha256', process.env.QR_HMAC_SECRET)
+    .update(rawPayload)
+    .digest('hex')
+    .slice(0, 24);
   return `${rawPayload}:${signature}`;
 };
 
@@ -26,13 +39,11 @@ router.post('/book/:eventId', protect, async (req, res) => {
   const studentId = req.user.id;
 
   try {
-    // 1. Check if student already holds a ticket for this event
     const existingTicket = await Ticket.findOne({ event: eventId, student: studentId });
     if (existingTicket) {
       return res.status(400).json({ message: 'You have already booked a pass for this event' });
     }
 
-    // 2. Atomic seat reservation: prevents race-condition overbooking under heavy load
     const updatedEvent = await Event.findOneAndUpdate(
       {
         _id: eventId,
@@ -49,7 +60,6 @@ router.post('/book/:eventId', protect, async (req, res) => {
       });
     }
 
-    // 3. Pre-generate MongoDB ObjectId so we can sign it immediately
     const ticketId = new mongoose.Types.ObjectId();
     const qrToken = signTicketPayload(ticketId.toString(), eventId, studentId);
     const qrImage = await QRCode.toDataURL(qrToken, { width: 300, margin: 2 });
@@ -74,7 +84,6 @@ router.post('/book/:eventId', protect, async (req, res) => {
         ticket: populated,
       });
     } catch (createErr) {
-      // Roll back seat count if ticket creation failed (e.g., duplicate rapid double-click)
       await Event.findByIdAndUpdate(eventId, { $inc: { bookedSeats: -1 } });
       return res.status(400).json({ message: 'Could not issue ticket (possible duplicate request)' });
     }
@@ -100,8 +109,40 @@ router.get('/my', protect, async (req, res) => {
   }
 });
 
+// @route   GET /api/tickets/rotating/:ticketId
+// @desc    Issue a fresh 30-second time-windowed HMAC QR image for active gate entry
+router.get('/rotating/:ticketId', protect, async (req, res) => {
+  try {
+    const ticket = await Ticket.findOne({ _id: req.params.ticketId, student: req.user.id });
+    if (!ticket) {
+      return res.status(404).json({ message: 'Ticket not found' });
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const currentWindow = Math.floor(nowSec / WINDOW_SECONDS);
+    const secondsRemaining = WINDOW_SECONDS - (nowSec % WINDOW_SECONDS);
+
+    const rotatingToken = signRotatingPayload(
+      ticket._id.toString(),
+      ticket.event.toString(),
+      req.user.id,
+      currentWindow
+    );
+    const rotatingQrImage = await QRCode.toDataURL(rotatingToken, { width: 300, margin: 2 });
+
+    res.json({
+      rotatingToken,
+      rotatingQrImage,
+      window: currentWindow,
+      secondsRemaining,
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to generate dynamic QR', error: error.message });
+  }
+});
+
 // @route   POST /api/tickets/verify
-// @desc    Gate scanner verifies HMAC signature & marks single-use check-in
+// @desc    Gate scanner verifies static OR 30s time-windowed HMAC signature & marks single-use check-in
 router.post('/verify', protect, authorize('organizer', 'admin'), async (req, res) => {
   try {
     const { qrToken, eventId } = req.body;
@@ -110,25 +151,53 @@ router.post('/verify', protect, authorize('organizer', 'admin'), async (req, res
     }
 
     const parts = qrToken.trim().split(':');
-    if (parts.length !== 4) {
+    if (parts.length !== 4 && parts.length !== 5) {
       return res.status(400).json({ valid: false, status: 'INVALID', message: 'Malformed QR pass' });
     }
 
-    const [ticketId, tokenEventId, studentId, providedSig] = parts;
+    let ticketId, tokenEventId, studentId;
+    let verificationMode = 'STATIC_HMAC';
 
-    // 1. Verify cryptographic HMAC signature
-    const expectedToken = signTicketPayload(ticketId, tokenEventId, studentId);
-    const expectedSig = expectedToken.split(':')[3];
+    if (parts.length === 4) {
+      // Legacy 4-part static HMAC token
+      let providedSig;
+      [ticketId, tokenEventId, studentId, providedSig] = parts;
+      const expectedSig = signTicketPayload(ticketId, tokenEventId, studentId).split(':')[3];
 
-    if (providedSig !== expectedSig) {
-      return res.status(403).json({
-        valid: false,
-        status: 'FORGED',
-        message: 'ALERT: Tampered or fake QR signature detected!',
-      });
+      if (providedSig !== expectedSig) {
+        return res.status(403).json({
+          valid: false,
+          status: 'FORGED',
+          message: 'ALERT: Tampered or fake QR signature detected!',
+        });
+      }
+    } else {
+      // Dynamic 5-part 30-second rotating HMAC token
+      let windowStr, providedSig;
+      [ticketId, tokenEventId, studentId, windowStr, providedSig] = parts;
+      const tokenWindow = parseInt(windowStr, 10);
+      const currentWindow = Math.floor(Math.floor(Date.now() / 1000) / WINDOW_SECONDS);
+
+      const expectedSig = signRotatingPayload(ticketId, tokenEventId, studentId, tokenWindow).split(':')[4];
+      if (providedSig !== expectedSig) {
+        return res.status(403).json({
+          valid: false,
+          status: 'FORGED',
+          message: 'ALERT: Tampered or fake dynamic QR signature detected!',
+        });
+      }
+
+      // Allow current window or 1 prior window (30s grace for clock drift)
+      if (Math.abs(currentWindow - tokenWindow) > 1) {
+        return res.status(410).json({
+          valid: false,
+          status: 'EXPIRED_QR',
+          message: 'Dynamic QR screenshot expired (>30s old). Ask student to refresh live pass!',
+        });
+      }
+      verificationMode = 'DYNAMIC_30S_HMAC';
     }
 
-    // 2. Optional check if organizer selected a specific event on the scanner screen
     if (eventId && eventId !== tokenEventId) {
       return res.status(400).json({
         valid: false,
@@ -137,7 +206,6 @@ router.post('/verify', protect, authorize('organizer', 'admin'), async (req, res
       });
     }
 
-    // 3. Look up ticket in database
     const ticket = await Ticket.findById(ticketId)
       .populate('student', 'name email rollNo')
       .populate('event', 'title clubName');
@@ -146,7 +214,6 @@ router.post('/verify', protect, authorize('organizer', 'admin'), async (req, res
       return res.status(404).json({ valid: false, status: 'INVALID', message: 'Ticket record not found' });
     }
 
-    // 4. Prevent duplicate/screenshot entry
     if (ticket.isCheckedIn) {
       return res.status(409).json({
         valid: false,
@@ -160,7 +227,6 @@ router.post('/verify', protect, authorize('organizer', 'admin'), async (req, res
       });
     }
 
-    // 5. Mark checked in
     ticket.isCheckedIn = true;
     ticket.checkedInAt = new Date();
     await ticket.save();
@@ -168,7 +234,8 @@ router.post('/verify', protect, authorize('organizer', 'admin'), async (req, res
     res.json({
       valid: true,
       status: 'VALID',
-      message: 'Entry Approved! Welcome.',
+      verificationMode,
+      message: `Entry Approved (${verificationMode})! Welcome.`,
       student: ticket.student,
       event: ticket.event,
       checkedInAt: ticket.checkedInAt,
@@ -179,7 +246,6 @@ router.post('/verify', protect, authorize('organizer', 'admin'), async (req, res
 });
 
 // @route   GET /api/tickets/event/:eventId/attendees
-// @desc    Organizer views live check-in stats & attendee list for an event
 router.get('/event/:eventId/attendees', protect, authorize('organizer', 'admin'), async (req, res) => {
   try {
     const tickets = await Ticket.find({ event: req.params.eventId })
