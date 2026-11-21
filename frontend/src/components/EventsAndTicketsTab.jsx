@@ -10,18 +10,21 @@ import {
   CheckCircle,
   Sparkles,
   RefreshCw,
-  TrendingUp,
+  Clock,
+  XCircle,
+  ShieldCheck,
 } from 'lucide-react';
 
-// Sub-component: Live 30-Second Time-Windowed Rotating QR Pass Card (Option B)
-function DynamicTicketCard({ ticket }) {
+function TicketPassCard({ ticket, onCancel }) {
+  const isWaitlisted = ticket.status === 'waitlisted';
   const [qrSrc, setQrSrc] = useState(ticket.qrImage);
   const [liveToken, setLiveToken] = useState(ticket.qrToken);
   const [secondsLeft, setSecondsLeft] = useState(30);
   const [copied, setCopied] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
-    if (ticket.isCheckedIn) return;
+    if (isWaitlisted || ticket.isCheckedIn) return;
 
     let cancelled = false;
 
@@ -34,7 +37,7 @@ function DynamicTicketCard({ ticket }) {
           setSecondsLeft(data.secondsRemaining || 30);
         }
       } catch {
-        // Fallback gracefully to static QR if offline
+        // Keep fallback QR if offline
       }
     };
 
@@ -54,7 +57,7 @@ function DynamicTicketCard({ ticket }) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [ticket._id, ticket.isCheckedIn]);
+  }, [ticket._id, ticket.isCheckedIn, isWaitlisted]);
 
   const handleCopyToken = () => {
     navigator.clipboard.writeText(liveToken);
@@ -62,47 +65,90 @@ function DynamicTicketCard({ ticket }) {
     setTimeout(() => setCopied(false), 1800);
   };
 
-  return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col items-center text-center">
-      <span className="text-xs text-indigo-400 font-semibold uppercase tracking-wider">
-        {ticket.event?.clubName}
-      </span>
-      <h4 className="font-bold text-base mt-0.5 mb-1">{ticket.event?.title}</h4>
-      <p className="text-xs text-slate-400 mb-3">
-        {ticket.event?.resource?.name} • {new Date(ticket.event?.startTime).toLocaleDateString()}
-      </p>
+  const handleCancelClick = async () => {
+    setCancelling(true);
+    await onCancel(ticket._id);
+    setCancelling(false);
+  };
 
-      <div className="bg-white p-2.5 rounded-xl mb-3 shadow-sm">
-        <img src={qrSrc} alt="Dynamic QR Pass" className="w-44 h-44 object-contain" />
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col items-center text-center justify-between">
+      <div className="w-full flex flex-col items-center">
+        <span className="text-xs text-indigo-400 font-semibold uppercase tracking-wider">
+          {ticket.event?.clubName}
+        </span>
+        <h4 className="font-bold text-base mt-0.5 mb-1">{ticket.event?.title}</h4>
+        <p className="text-xs text-slate-400 mb-3">
+          {ticket.event?.resource?.name} • {new Date(ticket.event?.startTime).toLocaleDateString()}
+        </p>
+
+        {isWaitlisted ? (
+          <div className="w-full bg-slate-800 border border-amber-500/40 rounded-xl p-4 my-2 space-y-2">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 text-amber-300 text-xs font-bold">
+              <Clock className="w-3.5 h-3.5" /> Standby Queue #{ticket.waitlistPosition}
+            </div>
+            <div className="text-2xl font-extrabold">{ticket.confirmationProbability ?? 75}%</div>
+            <p className="text-xs font-semibold">Estimated Confirmation Chance</p>
+            <p className="text-[11px] text-slate-400">
+              Auto-upgrades to a live QR pass the instant a confirmed student cancels.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="bg-white p-2.5 rounded-xl mb-3 shadow-sm">
+              <img src={qrSrc} alt="Dynamic QR Pass" className="w-44 h-44 object-contain" />
+            </div>
+
+            {!ticket.isCheckedIn ? (
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-xs font-medium px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-300 flex items-center gap-1.5">
+                  <RefreshCw className="w-3 h-3 animate-spin" style={{ animationDuration: '6s' }} />
+                  Confirmed • Live QR ({secondsLeft}s)
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  Screenshot-proof 30s rotating signature
+                </span>
+              </div>
+            ) : (
+              <span className="text-xs font-medium px-3 py-1 rounded-full bg-slate-800 text-slate-400">
+                Checked In at{' '}
+                {new Date(ticket.checkedInAt).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </span>
+            )}
+          </>
+        )}
       </div>
 
-      {!ticket.isCheckedIn ? (
-        <div className="flex flex-col items-center gap-1.5">
-          <span className="text-xs font-medium px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-300 flex items-center gap-1.5">
-            <RefreshCw className="w-3 h-3 animate-spin" style={{ animationDuration: '6s' }} />
-            Live 30s Rotating QR • {secondsLeft}s
-          </span>
-          <span className="text-[11px] text-slate-400">
-            Seat reserved permanently • Screenshot-proof gate token
-          </span>
-        </div>
-      ) : (
-        <span className="text-xs font-medium px-3 py-1 rounded-full bg-slate-800 text-slate-400">
-          Checked In at{' '}
-          {new Date(ticket.checkedInAt).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-        </span>
-      )}
+      <div className="w-full mt-3 pt-3 border-t border-slate-800 flex flex-col items-center gap-2">
+        {!isWaitlisted && (
+          <button
+            type="button"
+            onClick={handleCopyToken}
+            className="text-[11px] text-slate-500 hover:text-indigo-400 underline"
+          >
+            {copied ? 'Copied Live Token!' : 'Copy Live QR Token (for Gate Simulator)'}
+          </button>
+        )}
 
-      <button
-        type="button"
-        onClick={handleCopyToken}
-        className="mt-2.5 text-[11px] text-slate-500 hover:text-indigo-400 underline"
-      >
-        {copied ? 'Copied Live Token!' : 'Copy Live QR Token (for Gate Simulator)'}
-      </button>
+        {!ticket.isCheckedIn && (
+          <button
+            type="button"
+            disabled={cancelling}
+            onClick={handleCancelClick}
+            className="w-full py-1.5 px-3 rounded-lg bg-red-500/15 text-red-300 text-xs font-semibold flex items-center justify-center gap-1.5"
+          >
+            <XCircle className="w-3.5 h-3.5" />
+            {cancelling
+              ? 'Processing...'
+              : isWaitlisted
+              ? 'Leave Standby Waitlist'
+              : 'Cancel Pass (Release Seat)'}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -124,9 +170,8 @@ export default function EventsAndTicketsTab() {
     maxSeats: 50,
   });
 
-  // Research Options A & C state
   const [venueRec, setVenueRec] = useState(null);
-  const [overbookForecast, setOverbookForecast] = useState(null);
+  const [standbyInfo, setStandbyInfo] = useState(null);
 
   const loadAll = async () => {
     try {
@@ -150,25 +195,24 @@ export default function EventsAndTicketsTab() {
     loadAll();
   }, []);
 
-  // Fetch Smart Venue Fit-Score (Option A) & Overbooking Forecast (Option C) when form inputs change
   useEffect(() => {
     if (!showCreateForm) return;
     const seats = Math.max(1, Number(newEvent.maxSeats) || 50);
 
     const timer = setTimeout(async () => {
       try {
-        const [recRes, obRes] = await Promise.all([
+        const [recRes, sbRes] = await Promise.all([
           API.post('/research/recommend-venue', {
             expectedAttendees: seats,
             startTime: newEvent.startTime || undefined,
             endTime: newEvent.endTime || undefined,
           }),
-          API.get(`/research/overbooking-forecast?maxSeats=${seats}`),
+          API.get(`/research/standby-forecast?maxSeats=${seats}`),
         ]);
         setVenueRec(recRes.data);
-        setOverbookForecast(obRes.data);
+        setStandbyInfo(sbRes.data);
       } catch {
-        // Silently ignore if research endpoint is still warming up
+        // Ignore if warming up
       }
     }, 300);
 
@@ -185,6 +229,20 @@ export default function EventsAndTicketsTab() {
       setMessage({
         type: 'error',
         text: err.response?.data?.message || 'Could not book ticket',
+      });
+    }
+  };
+
+  const handleCancelTicket = async (ticketId) => {
+    setMessage(null);
+    try {
+      const { data } = await API.post(`/tickets/cancel/${ticketId}`);
+      setMessage({ type: 'success', text: data.message });
+      loadAll();
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err.response?.data?.message || 'Could not cancel pass',
       });
     }
   };
@@ -214,7 +272,7 @@ export default function EventsAndTicketsTab() {
     }
   };
 
-  const bookedEventIds = new Set(myTickets.map((t) => t.event?._id));
+  const ticketByEventId = new Map(myTickets.map((t) => [t.event?._id, t]));
 
   return (
     <div className="space-y-8">
@@ -235,7 +293,7 @@ export default function EventsAndTicketsTab() {
         <div>
           <h2 className="text-xl font-bold">Upcoming Campus Events</h2>
           <p className="text-xs text-slate-400">
-            Atomic seat reservation with 30-second rotating HMAC QR passes
+            Atomic seat reservation, 30s rotating HMAC passes &amp; probabilistic standby waitlist
           </p>
         </div>
 
@@ -250,7 +308,7 @@ export default function EventsAndTicketsTab() {
         )}
       </div>
 
-      {/* Organizer Event Creation Form + Smart Venue & Overbooking Advisor */}
+      {/* Organizer Event Creation Form + Smart Venue & Standby Buffer Advisor */}
       {showCreateForm && (
         <form
           onSubmit={handleCreateEvent}
@@ -294,7 +352,7 @@ export default function EventsAndTicketsTab() {
           <input
             type="number"
             min={1}
-            placeholder="Expected / Max Ticket Seats"
+            placeholder="Confirmed Ticket Seats"
             required
             value={newEvent.maxSeats}
             onChange={(e) => setNewEvent({ ...newEvent, maxSeats: e.target.value })}
@@ -321,8 +379,7 @@ export default function EventsAndTicketsTab() {
             />
           </div>
 
-          {/* Options A & C: Smart Venue Fit-Score & No-Show Overbooking Advisor */}
-          {(venueRec?.topRecommendation || overbookForecast) && (
+          {(venueRec?.topRecommendation || standbyInfo) && (
             <div className="sm:col-span-2 bg-slate-800 border border-slate-700 rounded-xl p-4 grid md:grid-cols-2 gap-4 text-xs">
               {venueRec?.topRecommendation && (
                 <div className="space-y-1.5">
@@ -358,35 +415,18 @@ export default function EventsAndTicketsTab() {
                 </div>
               )}
 
-              {overbookForecast && (
+              {standbyInfo && (
                 <div className="space-y-1.5 md:border-l md:border-slate-700 md:pl-4">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold flex items-center gap-1.5">
-                      <TrendingUp className="w-4 h-4 text-indigo-400" />
-                      No-Show & Overbooking Predictor
-                    </span>
-                    {overbookForecast.recommendedOverbookBuffer > 0 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setNewEvent({
-                            ...newEvent,
-                            maxSeats: overbookForecast.suggestedReleaseCap,
-                          })
-                        }
-                        className="bg-indigo-600 px-2.5 py-1 rounded-md text-[11px] font-semibold"
-                      >
-                        Set {overbookForecast.suggestedReleaseCap} Seats
-                      </button>
-                    )}
-                  </div>
+                  <span className="font-bold flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-indigo-400" />
+                    Bounded Standby Waitlist Policy
+                  </span>
                   <p className="font-semibold">
-                    Predicted No-Show: {overbookForecast.predictedNoShowRatePct}% • Safe Buffer: +
-                    {overbookForecast.recommendedOverbookBuffer} passes
+                    Auto-Standby Buffer: +{standbyInfo.recommendedStandbyCap} queue slots (15% cap)
                   </p>
                   <p className="text-slate-400">
-                    Bayesian empirical show rate ({overbookForecast.empiricalShowRatePct}%) prevents
-                    empty auditorium seats.
+                    Never exceeds physical room capacity; FIFO auto-promotes standby students on
+                    cancellation ({standbyInfo.historicalCancelRatePct}% historical cancel rate).
                   </p>
                 </div>
               )}
@@ -397,7 +437,7 @@ export default function EventsAndTicketsTab() {
             type="submit"
             className="sm:col-span-2 bg-indigo-600 hover:bg-indigo-500 font-semibold py-2.5 rounded-lg"
           >
-            Submit Event & Check Venue Conflict
+            Submit Event &amp; Check Venue Conflict
           </button>
         </form>
       )}
@@ -410,8 +450,8 @@ export default function EventsAndTicketsTab() {
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
           {events.map((ev) => {
-            const seatsLeft = ev.maxSeats - ev.bookedSeats;
-            const alreadyBooked = bookedEventIds.has(ev._id);
+            const seatsLeft = Math.max(0, ev.maxSeats - ev.bookedSeats);
+            const existingTicket = ticketByEventId.get(ev._id);
 
             return (
               <div
@@ -442,19 +482,32 @@ export default function EventsAndTicketsTab() {
                   </div>
                 </div>
 
-                {alreadyBooked ? (
+                {existingTicket ? (
                   <button
                     disabled
-                    className="w-full py-2 rounded-lg bg-emerald-500/15 text-emerald-300 text-sm font-medium flex items-center justify-center gap-1.5"
+                    className={`w-full py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 ${
+                      existingTicket.status === 'waitlisted'
+                        ? 'bg-amber-500/15 text-amber-300'
+                        : 'bg-emerald-500/15 text-emerald-300'
+                    }`}
                   >
-                    <CheckCircle className="w-4 h-4" /> Pass Claimed (See Below)
+                    {existingTicket.status === 'waitlisted' ? (
+                      <>
+                        <Clock className="w-4 h-4" /> Standby #{existingTicket.waitlistPosition} (
+                        {existingTicket.confirmationProbability}% Chance)
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-4 h-4" /> Pass Claimed (See Below)
+                      </>
+                    )}
                   </button>
                 ) : seatsLeft <= 0 ? (
                   <button
-                    disabled
-                    className="w-full py-2 rounded-lg bg-slate-800 text-slate-500 text-sm font-medium"
+                    onClick={() => handleBookTicket(ev._id)}
+                    className="w-full py-2 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/40 text-sm font-semibold transition flex items-center justify-center gap-1.5"
                   >
-                    Sold Out
+                    <Clock className="w-4 h-4" /> Join Standby Waitlist
                   </button>
                 ) : (
                   <button
@@ -470,15 +523,17 @@ export default function EventsAndTicketsTab() {
         </div>
       )}
 
-      {/* My QR Tickets Wallet */}
+      {/* My QR Tickets & Standby Passes Wallet */}
       <div className="pt-4 border-t border-slate-800">
-        <h3 className="text-lg font-bold mb-4">My Digital QR Passes ({myTickets.length})</h3>
+        <h3 className="text-lg font-bold mb-4">
+          My Digital Passes &amp; Standby Queue ({myTickets.length})
+        </h3>
         {myTickets.length === 0 ? (
           <p className="text-sm text-slate-400">You haven&apos;t claimed any event passes yet.</p>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {myTickets.map((t) => (
-              <DynamicTicketCard key={t._id} ticket={t} />
+              <TicketPassCard key={t._id} ticket={t} onCancel={handleCancelTicket} />
             ))}
           </div>
         )}
