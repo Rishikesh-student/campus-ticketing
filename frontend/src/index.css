@@ -1,14 +1,15 @@
 @import "tailwindcss";
 
 :root {
-  --bg-canvas: #f4faf8;
+  --bg-canvas: #f3faf7;
   --surface-mint: rgb(217, 242, 235);
+  --surface-mint-deep: #bfe3d8;
   --surface-card: #ffffff;
   --accent-lime: rgb(222, 255, 176);
-  --accent-lime-hover: rgb(206, 248, 148);
-  --ink-primary: #0f2922;
-  --ink-secondary: #3b5951;
-  --border-mint: #b8dfd4;
+  --accent-lime-hover: rgb(202, 246, 138);
+  --ink-primary: #0b221c;
+  --ink-secondary: #26473e;
+  --border-mint: #9ecfc1;
 }
 
 /* 1. Global Hand Cursor on all interactive elements */
@@ -36,110 +37,147 @@ button:not(:disabled) {
 
 button:not(:disabled):hover {
   transform: translateY(-1.5px);
-  box-shadow: 0 6px 16px -4px rgba(15, 41, 34, 0.16);
+  box-shadow: 0 6px 16px -4px rgba(11, 34, 28, 0.18);
 }
 
 button:not(:disabled):active {
   transform: translateY(0px) scale(0.985);
 }
 
-/* 3. Modern Mint & Electric Lime Palette Override */
-body {
+/* 3. Base Canvas & High-Contrast Typography */
+html,
+body,
+#root {
   background-color: var(--bg-canvas) !important;
   color: var(--ink-primary) !important;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
-/* Remap dark slate backgrounds to crisp Mint & White surfaces */
-.bg-slate-950,
-.bg-slate-950\/70,
-.bg-slate-950\/60 {
-  background-color: var(--bg-canvas) !important;
-}
-
-.bg-slate-900 {
-  background-color: var(--surface-mint) !important;
-  color: var(--ink-primary) !important;
-}
-
-.bg-slate-800 {
-  background-color: var(--surface-card) !important;
-  color: var(--ink-primary) !important;
-}
-
-.hover\:bg-slate-700:hover,
-.hover\:bg-slate-600:hover {
-  background-color: var(--accent-lime) !important;
-  color: var(--ink-primary) !important;
-}
-
-/* Borders */
-.border-slate-800,
-.border-slate-700 {
-  border-color: var(--border-mint) !important;
-}
-
-/* Primary Buttons & Active Pills -> Electric Lime rgb(222, 255, 176) */
-.bg-indigo-600 {
-  background-color: var(--accent-lime) !important;
-  color: var(--ink-primary) !important;
-  border: 1px solid #9fd468 !important;
-  font-weight: 600 !important;
-}
-
-.hover\:bg-indigo-500:hover {
-  background-color: var(--accent-lime-hover) !important;
-}
-
-/* Typography contrast on light mint surfaces */
-.text-white {
-  color: var(--ink-primary) !important;
-}
-
-.text-slate-100,
-.text-slate-200,
-.text-slate-300 {
-  color: var(--ink-primary) !important;
-}
-
-.text-slate-400,
-.text-slate-500 {
-  color: var(--ink-secondary) !important;
-}
-
-.text-indigo-400,
-.text-indigo-300,
-.text-indigo-200,
-.text-indigo-100 {
-  color: #165b49 !important;
-}
-
-/* Keep Status Banners crisp and readable on light mint cards */
-.bg-emerald-500\/15 {
-  background-color: rgba(16, 185, 129, 0.14) !important;
-  color: #065f46 !important;
-}
-
-.bg-amber-500\/15 {
-  background-color: rgba(245, 158, 11, 0.16) !important;
-  color: #92400e !important;
-}
-
-.bg-red-500\/15 {
-  background-color: rgba(239, 68, 68, 0.14) !important;
-  color: #991b1b !important;
-}
-
-/* Inputs & Selects */
-input,
-select,
-textarea {
+/* 4. Override Dark & Translucent Slate Surfaces (Navbar, Cards, Modals) */
+nav,
+header,
+[class*="bg-slate-950"] {
   background-color: #ffffff !important;
   color: var(--ink-primary) !important;
   border-color: var(--border-mint) !important;
 }
 
+[class*="bg-slate-900"] {
+  background-color: var(--surface-mint) !important;
+  color: var(--ink-primary) !important;
+  border-color: var(--border-mint) !important;
+}
+
+[class*="bg-slate-800"] {
+  background-color: var(--surface-card) !important;
+  color: var(--ink-primary) !important;
+  border-color: var(--border-mint) !important;
+}
+
+/* 5. Fix Sign-In Page Left Hero Panel & Indigo/Purple Gradients */
+[class*="from-indigo-"],
+[class*="via-indigo-"],
+[class*="to-purple-"],
+[class*="bg-indigo-950"],
+[class*="bg-indigo-900"],
+[class*="bg-indigo-500\/"] {
+  background-image: linear-gradient(135deg, rgb(217, 242, 235) 0%, rgb(222, 255, 176) 100%) !important;
+  background-color: var(--surface-mint) !important;
+  color: var(--ink-primary) !important;
+  border-color: var(--border-mint) !important;
+}
+
+/* 6. Primary Buttons & Active Nav Pills -> Electric Lime rgb(222, 255, 176) */
+.bg-indigo-600,
+button[class*="bg-indigo-"] {
+  background-image: none !important;
+  background-color: var(--accent-lime) !important;
+  color: var(--ink-primary) !important;
+  border: 1.5px solid #88c44d !important;
+  font-weight: 700 !important;
+}
+
+.hover\:bg-indigo-500:hover,
+button[class*="bg-indigo-"]:hover {
+  background-color: var(--accent-lime-hover) !important;
+  color: var(--ink-primary) !important;
+}
+
+.hover\:bg-slate-700:hover,
+.hover\:bg-slate-600:hover,
+.hover\:text-white:hover {
+  background-color: var(--accent-lime) !important;
+  color: var(--ink-primary) !important;
+}
+
+/* 7. Enforce High-Contrast Dark Forest Ink on All Light Text Classes */
+.text-white,
+[class*="text-slate-100"],
+[class*="text-slate-200"],
+[class*="text-slate-300"] {
+  color: var(--ink-primary) !important;
+}
+
+[class*="text-slate-400"],
+[class*="text-slate-500"] {
+  color: var(--ink-secondary) !important;
+  font-weight: 500;
+}
+
+[class*="text-indigo-"] {
+  color: #0e4f3e !important;
+  font-weight: 600;
+}
+
+/* 8. Borders */
+[class*="border-slate-"],
+[class*="border-indigo-"] {
+  border-color: var(--border-mint) !important;
+}
+
+/* 9. Status Badges & Alerts (Emerald, Amber, Red) */
+[class*="bg-emerald-"] {
+  background-color: #d1fae5 !important;
+  color: #064e3b !important;
+  border-color: #34d399 !important;
+}
+
+[class*="text-emerald-"] {
+  color: #064e3b !important;
+}
+
+[class*="bg-amber-"] {
+  background-color: #fef3c7 !important;
+  color: #78350f !important;
+  border-color: #fbbf24 !important;
+}
+
+[class*="text-amber-"] {
+  color: #78350f !important;
+}
+
+[class*="bg-red-"],
+[class*="bg-rose-"] {
+  background-color: #fee2e2 !important;
+  color: #7f1d1d !important;
+  border-color: #f87171 !important;
+}
+
+[class*="text-red-"],
+[class*="text-rose-"] {
+  color: #7f1d1d !important;
+}
+
+/* 10. Form Inputs & Dropdowns */
+input,
+select,
+textarea {
+  background-color: #ffffff !important;
+  color: var(--ink-primary) !important;
+  border: 1.5px solid var(--border-mint) !important;
+}
+
 input::placeholder,
 textarea::placeholder {
-  color: #6b8a82 !important;
+  color: #55786f !important;
 }
