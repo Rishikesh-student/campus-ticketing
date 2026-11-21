@@ -4,6 +4,47 @@ const Event = require('../models/Event');
 
 const router = express.Router();
 
+let cachedGroqModel = null;
+
+async function getAvailableGroqModel(apiKey) {
+  if (cachedGroqModel) return cachedGroqModel;
+
+  const res = await fetch('https://api.groq.com/openai/v1/models', {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch Groq models: ${res.status}`);
+  }
+
+  const data = await res.json();
+  const models = (data.data || [])
+    .map((m) => m.id)
+    .filter(
+      (id) =>
+        !id.includes('whisper') &&
+        !id.includes('guard') &&
+        !id.includes('tts') &&
+        !id.includes('embed')
+    );
+
+  // Prefer Llama 3.3 / 3.1 / 4 or Qwen chat models if available, else pick the first active text model
+  const preferred =
+    models.find((id) => id.includes('llama-3.3-70b')) ||
+    models.find((id) => id.includes('llama-4')) ||
+    models.find((id) => id.includes('llama')) ||
+    models.find((id) => id.includes('qwen')) ||
+    models[0];
+
+  if (!preferred) {
+    throw new Error('No active text models found on Groq account');
+  }
+
+  cachedGroqModel = preferred;
+  console.log('✅ Selected Groq model:', cachedGroqModel);
+  return cachedGroqModel;
+}
+
 router.post('/chat', async (req, res) => {
   let resourceSummary = 'No active campus resources listed yet.';
   let eventSummary = 'No approved upcoming events currently scheduled.';
@@ -14,7 +55,6 @@ router.post('/chat', async (req, res) => {
       return res.status(400).json({ message: 'Message is required.' });
     }
 
-    // 1. Fetch live campus context from MongoDB
     const [resources, events] = await Promise.all([
       Resource.find({ isActive: true }).select('name category location capacity requiresApproval'),
       Event.find({ status: 'approved' })
@@ -46,14 +86,15 @@ router.post('/chat', async (req, res) => {
 
     const apiKey = process.env.GROQ_API_KEY?.trim();
     if (!apiKey) {
-      console.error('GROQ_API_KEY is missing in environment variables');
       return res.json({
         reply: `Here is the live campus schedule from our database:\n\nVenues & Labs:\n${resourceSummary}\n\nUpcoming Events:\n${eventSummary}`,
       });
     }
 
+    const activeModel = await getAvailableGroqModel(apiKey);
+
     const systemPrompt = `You are CampusHub AI, the smart assistant for a college Resource & Event Ticketing System.
-Answer concisely and warmly using ONLY the live database info below.
+Answer the user's specific question concisely and warmly using ONLY the live database info below. Do not dump the entire list unless they ask for all venues/events.
 
 LIVE CAMPUS RESOURCES:
 ${resourceSummary}
@@ -71,7 +112,6 @@ SYSTEM RULES:
       content: m.content,
     }));
 
-    // 2. Call Groq with a 10-second timeout
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
 
@@ -83,7 +123,7 @@ SYSTEM RULES:
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'llama-3.1-8b-instant',
+        model: activeModel,
         messages: [
           { role: 'system', content: systemPrompt },
           ...recentMessages,
@@ -97,6 +137,7 @@ SYSTEM RULES:
 
     if (!groqResponse.ok) {
       const errBody = await groqResponse.text();
+      cachedGroqModel = null; // Reset cache if model changes
       console.error(`Groq API Error (${groqResponse.status}):`, errBody);
       throw new Error(`Groq API status ${groqResponse.status}`);
     }
@@ -106,7 +147,6 @@ SYSTEM RULES:
     return res.json({ reply });
   } catch (err) {
     console.error('AI Helper Error:', err.message);
-    // Smart DB fallback so the user ALWAYS gets real campus info even if Groq fails
     return res.json({
       reply: `Here is the live campus availability directly from our database:\n\nVenues & Labs:\n${resourceSummary}\n\nUpcoming Events:\n${eventSummary}`,
     });
