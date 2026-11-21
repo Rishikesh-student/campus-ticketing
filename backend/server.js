@@ -10,6 +10,11 @@ const authRoutes = require('./routes/authRoutes');
 const resourceRoutes = require('./routes/resourceRoutes');
 const eventRoutes = require('./routes/eventRoutes');
 const ticketRoutes = require('./routes/ticketRoutes');
+// Add alongside your other route imports:
+const aiRoutes = require('./routes/aiRoutes');
+
+// Add alongside your other app.use(...) routes:
+app.use('/api/ai', aiRoutes);
 
 const app = express();
 
