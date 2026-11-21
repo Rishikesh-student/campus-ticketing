@@ -6,6 +6,7 @@ import EventsAndTicketsTab from './components/EventsAndTicketsTab';
 import GateScannerTab from './components/GateScannerTab';
 import AdminDashboardTab from './components/AdminDashboardTab';
 import { LogOut, Ticket, Building2, QrCode, ShieldCheck } from 'lucide-react';
+import AiHelperWidget from './components/AiHelperWidget';
 
 export default function App() {
   const { user, logoutUser } = useAuth();
@@ -95,6 +96,8 @@ export default function App() {
         {activeTab === 'scanner' && <GateScannerTab />}
         {activeTab === 'admin' && <AdminDashboardTab />}
       </main>
+
+      <AiHelperWidget />
     </div>
   );
 }
