@@ -13,6 +13,12 @@ const WINDOW_SECONDS = 30;
 // Dynamic standby buffer cap: 15% of event seats, capped at 25 standby passes
 const getMaxWaitlistCap = (maxSeats) => Math.min(Math.max(2, Math.ceil(0.15 * maxSeats)), 25);
 
+// Helper: checks if an event's date/time has already passed
+const isEventPast = (eventDoc) => {
+  const cutoff = eventDoc.endTime ? new Date(eventDoc.endTime) : new Date(eventDoc.startTime);
+  return !Number.isNaN(cutoff.getTime()) && cutoff.getTime() <= Date.now();
+};
+
 // Poisson tail probability: P(at least k cancellations occur before event start)
 const computeConfirmationProbability = (position, maxSeats, startTime, historicalCancelRate = 0.15) => {
   if (!position || position <= 0) return 100;
@@ -65,6 +71,13 @@ router.post('/book/:eventId', protect, async (req, res) => {
       return res.status(400).json({ message: 'Event is not approved or does not exist' });
     }
 
+    // 0. Block pass claims & standby enrollment if event date/time has already passed
+    if (isEventPast(eventDoc)) {
+      return res.status(400).json({
+        message: 'Cannot claim pass or join waitlist: this event has already passed.',
+      });
+    }
+
     const existingTicket = await Ticket.findOne({ event: eventId, student: studentId });
     if (existingTicket && existingTicket.status !== 'cancelled') {
       return res.status(400).json({
@@ -90,7 +103,21 @@ router.post('/book/:eventId', protect, async (req, res) => {
     let waitlistPos = null;
 
     if (!updatedEvent) {
-      // 2. Event is full -> check bounded standby waitlist capacity
+      // 2. Event is full -> check if any unscanned confirmed ticket still exists
+      // Once a pass is scanned it cannot be cancelled, so if all confirmed passes are scanned, no waitlist is possible
+      const unscannedConfirmedCount = await Ticket.countDocuments({
+        event: eventId,
+        status: 'confirmed',
+        isCheckedIn: false,
+      });
+
+      if (unscannedConfirmedCount === 0) {
+        return res.status(400).json({
+          message: 'All confirmed passes have already been scanned; standby waitlist is closed.',
+        });
+      }
+
+      // 3. Check bounded standby waitlist capacity
       const maxWaitlist = getMaxWaitlistCap(eventDoc.maxSeats);
       const currentWaitlistCount = await Ticket.countDocuments({
         event: eventId,
@@ -164,7 +191,7 @@ router.post('/book/:eventId', protect, async (req, res) => {
 });
 
 // @route   POST /api/tickets/cancel/:ticketId
-// @desc    Cancel pass & atomically promote FIFO #1 standby waitlisted student
+// @desc    Cancel pass (only if not scanned) & atomically promote FIFO #1 standby waitlisted student
 router.post('/cancel/:ticketId', protect, async (req, res) => {
   try {
     const ticket = await Ticket.findOne({ _id: req.params.ticketId, student: req.user.id });
@@ -172,7 +199,9 @@ router.post('/cancel/:ticketId', protect, async (req, res) => {
       return res.status(404).json({ message: 'Active pass not found' });
     }
     if (ticket.isCheckedIn) {
-      return res.status(400).json({ message: 'Cannot cancel a pass that has already been checked in' });
+      return res.status(400).json({
+        message: 'Cannot cancel a pass after it has been scanned at the gate',
+      });
     }
 
     const previousStatus = ticket.status;

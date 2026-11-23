@@ -17,6 +17,11 @@ import {
   Eye,
 } from 'lucide-react';
 
+const isPastEvent = (ev) => {
+  const cutoff = ev?.endTime ? new Date(ev.endTime) : new Date(ev?.startTime);
+  return !Number.isNaN(cutoff.getTime()) && cutoff.getTime() <= Date.now();
+};
+
 function TicketPassCard({ ticket, onCancel, onDismiss }) {
   const isWaitlisted = ticket.status === 'waitlisted';
   const [qrSrc, setQrSrc] = useState(ticket.qrImage);
@@ -103,7 +108,7 @@ function TicketPassCard({ ticket, onCancel, onDismiss }) {
             <div className="text-2xl font-extrabold">{ticket.confirmationProbability ?? 75}%</div>
             <p className="text-xs font-semibold">Estimated Confirmation Chance</p>
             <p className="text-[11px] text-slate-400">
-              Auto-upgrades to a live QR pass the instant a confirmed student cancels.
+              Auto-upgrades to a live QR pass the instant an unscanned confirmed student cancels.
             </p>
           </div>
         ) : (
@@ -146,7 +151,8 @@ function TicketPassCard({ ticket, onCancel, onDismiss }) {
           </button>
         )}
 
-        {!ticket.isCheckedIn && (
+        {/* Once scanned (isCheckedIn), pass cannot be cancelled */}
+        {!ticket.isCheckedIn ? (
           <button
             type="button"
             disabled={cancelling}
@@ -160,6 +166,10 @@ function TicketPassCard({ ticket, onCancel, onDismiss }) {
               ? 'Leave Standby Waitlist'
               : 'Cancel Pass (Release Seat)'}
           </button>
+        ) : (
+          <span className="text-[11px] text-slate-500">
+            Pass scanned — cancellation locked
+          </span>
         )}
       </div>
     </div>
@@ -191,7 +201,6 @@ export default function EventsAndTicketsTab() {
   const [venueRec, setVenueRec] = useState(null);
   const [standbyInfo, setStandbyInfo] = useState(null);
 
-  // Load dismissed lists for this user
   useEffect(() => {
     if (!user?.id) return;
     try {
@@ -540,6 +549,7 @@ export default function EventsAndTicketsTab() {
           {visibleEvents.map((ev) => {
             const seatsLeft = Math.max(0, ev.maxSeats - ev.bookedSeats);
             const existingTicket = ticketByEventId.get(ev._id);
+            const past = isPastEvent(ev);
 
             return (
               <div
@@ -602,6 +612,13 @@ export default function EventsAndTicketsTab() {
                         <CheckCircle className="w-4 h-4 shrink-0" /> Pass Claimed (See Below)
                       </>
                     )}
+                  </button>
+                ) : past ? (
+                  <button
+                    disabled
+                    className="w-full py-2.5 sm:py-2 rounded-lg bg-slate-800 text-slate-500 border border-slate-700 text-xs sm:text-sm font-medium cursor-not-allowed flex items-center justify-center gap-1.5"
+                  >
+                    Event Date Passed
                   </button>
                 ) : seatsLeft <= 0 ? (
                   <button
